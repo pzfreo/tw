@@ -15,26 +15,19 @@ import argparse
 from math import pi, cos, sin
 
 from build123d import *
+from bd_warehouse.fastener import CounterSunkScrew
 from bd_warehouse.thread import IsoThread
-
-# ── ISO 10642 flat-head socket cap screw specs ─────────────────────────────
-# (head_dia mm, head_height mm)
-ISO_HEADS = {
-    3:  (5.5,  1.86),
-    4:  (8.0,  2.48),
-    5:  (9.5,  2.48),
-    6:  (11.0, 3.3),
-    8:  (14.5, 4.4),
-    10: (18.0, 5.5),
-    12: (22.0, 6.5),
-}
 
 PITCHES = {3: 0.5, 4: 0.7, 5: 0.8, 6: 1.0, 8: 1.25, 10: 1.5, 12: 1.75}
 
 
 def build_thumbwheel(M: int = 6, n_flutes: int = 16) -> Compound:
-    head_d, head_h = ISO_HEADS[M]
-    pitch          = PITCHES[M]
+    pitch  = PITCHES[M]
+    # Pull head geometry and tap-drill size direct from bd_warehouse ISO 10642 data
+    screw  = CounterSunkScrew(size=f"M{M}-{pitch:g}", fastener_type="iso10642", length=10)
+    head_d = screw.head_diameter
+    head_h = screw.head_height
+    tap_r  = float(list(screw.tap_drill_sizes.values())[0]) / 2  # tap drill radius
 
     # Auto-scaled dimensions
     wheel_r    = M * 4                               # M6 → r=24 mm (⌀48 mm)
@@ -81,7 +74,7 @@ def build_thumbwheel(M: int = 6, n_flutes: int = 16) -> Compound:
         # Bore at major_radius to remove all ridge material, then add the
         # IsoThread ridges back.  Locations context positions the thread
         # (add() ignores .moved() location inside BuildPart).
-        Cylinder(radius=M / 2, height=wheel_h, mode=Mode.SUBTRACT)
+        Cylinder(radius=tap_r, height=wheel_h, mode=Mode.SUBTRACT)
         with Locations([Location(Vector(0, 0, -wheel_h / 2))]):
             add(thread)
 
@@ -131,7 +124,7 @@ def build_thumbwheel(M: int = 6, n_flutes: int = 16) -> Compound:
 
 def main():
     ap = argparse.ArgumentParser(description="Build parametric thumb wheel")
-    ap.add_argument("--m",      type=int, default=6,  choices=sorted(ISO_HEADS),
+    ap.add_argument("--m",      type=int, default=6,  choices=sorted(PITCHES),
                     help="Bolt M size (default 6)")
     ap.add_argument("--flutes", type=int, default=16,
                     help="Number of grip flutes (default 16)")
