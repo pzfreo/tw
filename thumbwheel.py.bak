@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""
+Parametric Thumbwheel
+=====================
+Fits ISO 10642 flat-head socket cap screws (Allen key / hex socket drive).
+- Countersunk top to seat the flat head flush
+- Modelled ISO metric internal thread (M3–M12)
+- Smooth fluted grip around the outer circumference
+
+Adjust M and num_flutes; outer_radius and height auto-scale but can be overridden.
+
+Usage:
+    python thumbwheel.py          # generates thumbwheel_m6.step / .stl
+    M=8 python thumbwheel.py      # or edit M below
+"""
+
+from build123d import *
+from bd_warehouse.thread import IsoThread
+import math
+
+# ── Primary parameters ────────────────────────────────────────────────────────
+M          = 6    # Bolt diameter mm: 3 | 4 | 5 | 6 | 8 | 10 | 12
+num_flutes = 20   # Number of grip flutes (knurl count)
+
+# ── ISO 10642 flat-head socket cap screw dimensions ───────────────────────────
+# dk = head diameter, k = head height, pitch = thread pitch (coarse series)
+ISO10642 = {
+    3:  dict(dk= 6.0, k=1.7, pitch=0.50),
+    4:  dict(dk= 8.0, k=2.3, pitch=0.70),
+    5:  dict(dk=10.0, k=2.8, pitch=0.80),
+    6:  dict(dk=12.0, k=3.3, pitch=1.00),
+    8:  dict(dk=16.0, k=4.4, pitch=1.25),
+    10: dict(dk=20.0, k=5.5, pitch=1.50),
+    12: dict(dk=24.0, k=6.5, pitch=1.75),
+}
+spec  = ISO10642[M]
+dk    = spec["dk"]     # head diameter  [mm]
+k     = spec["k"]      # head height    [mm]
+pitch = spec["pitch"]  # thread pitch   [mm]
+
+# ── Auto-scaled body dimensions (override here if desired) ────────────────────
+outer_radius = max(dk, 5 * M) / 2      # M6 → 15 mm
+height       = round(k + 2.5 * M, 1)  # M6 → 18.3 mm
+
+# ── Derived geometry ──────────────────────────────────────────────────────────
+# Countersink: 90° included angle (half-angle 45°), tan(45°)=1
+cs_depth      = dk / 2 - M / 2          # depth to M/2 radius  M6 → 3.0 mm
+thread_len    = height - cs_depth        # threaded bore length  M6 → 15.3 mm
+flute_spacing = 2 * math.pi * outer_radius / num_flutes
+flute_r       = flute_spacing * 0.35    # flute cylinder radius  M6 → 1.65 mm
+
+print(f"M{M} Thumbwheel: OD={outer_radius*2}mm  H={height}mm  "
+      f"cs={cs_depth}mm  thread={thread_len}mm  "
+      f"flutes={num_flutes}×r{flute_r:.2f}mm")
+
+# ── Build body: cylinder + countersink + bore + flutes ────────────────────────
+with BuildPart() as tw:
+    Cylinder(radius=outer_radius, height=height)
+
+    # Countersink cone — 90° opening at top surface
+    # top radius = dk/2 at z = +height/2, narrows to M/2 at cs_depth below top
+    with Locations([(0, 0, height / 2 - cs_depth / 2)]):
+        Cone(bottom_radius=M / 2, top_radius=dk / 2,
+             height=cs_depth, mode=Mode.SUBTRACT)
+
+    # Plain bore at major diameter below the countersink
+    with Locations([(0, 0, -cs_depth / 2)]):
+        Cylinder(radius=M / 2, height=thread_len, mode=Mode.SUBTRACT)
+
+    # Smooth fluted cuts around the outer edge (knurl pattern)
+    flute_locs = [
+        (outer_radius * math.cos(math.radians(360 * i / num_flutes)),
+         outer_radius * math.sin(math.radians(360 * i / num_flutes)),
+         0)
+        for i in range(num_flutes)
+    ]
+    with Locations(flute_locs):
+        Cylinder(radius=flute_r, height=height * 1.05, mode=Mode.SUBTRACT)
+
+body = tw.part
+
+# ── ISO metric internal thread ────────────────────────────────────────────────
+# IsoThread z-origin is at z=0 (not centred); move to -height/2 to align with body.
+# Subtract from body to create helical thread grooves in the bore wall.
+thread = IsoThread(
+    major_diameter=M,
+    pitch=pitch,
+    length=thread_len,
+    external=False,
+    end_finishes=("fade", "fade"),
+)
+thread = thread.moved(Location((0, 0, -height / 2)))
+
+thumbwheel = body - thread
+
+print(f"Done — volume={thumbwheel.volume:.0f} mm³  faces={len(thumbwheel.faces())}")
+
+# ── Export ────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    export_step(thumbwheel, f"thumbwheel_m{M}.step")
+    export_stl(thumbwheel,  f"thumbwheel_m{M}.stl")
+    print(f"Exported thumbwheel_m{M}.step / .stl")
